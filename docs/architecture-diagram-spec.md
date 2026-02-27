@@ -1,13 +1,11 @@
 # Architecture diagram spec (Eraser.io)
 
-You’re using **Eraser**. Eraser supports both:
-- Mermaid diagrams
 - Eraser “diagram-as-code” DSL
 
 This guide includes both.
 
 ## Files
-- Mermaid: `docs/architecture-mermaid.md`
+
 - Eraser DSL: `docs/ct-gitops-v2-architecture.eraserdiagram`
 
 ---
