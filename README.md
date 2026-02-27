@@ -136,6 +136,8 @@ flowchart LR
   ACM -->|"TLS cert attached"| ALB
   ALB -->|"HTTPS"| Users
 
+```
+
 ---
 
 ## Proof screenshots
