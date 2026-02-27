@@ -1,105 +1,86 @@
-# ct-gitops v2 — GitOps on EKS with Terraform + Argo CD + Kustomize + CI/CD
+# ct-gitops v2 — GitOps on AWS EKS (Terraform + Argo CD + Kustomize + OIDC CI/CD)
 
-This repo is a **beginner-friendly, step-by-step guide** to replicate my GitOps v2 project:
+This repo is a **beginner-friendly replication guide** for an “industry-style” GitOps v2 setup on AWS.
 
-- **Terraform** provisions AWS infra (VPC, EKS, IAM/IRSA, ECR, Route53, ACM, Secrets Manager)
-- **Argo CD** reconciles desired state from Git (app-of-apps)
-- **Kustomize** manages environment overlays (dev)
-- **GitHub Actions (OIDC)** builds & pushes images to **ECR**
-- Pipeline opens a **PR to GitOps repo** updating the image tag → merge triggers Argo deploy
+**What you build:**
+- **Terraform** provisions AWS infra: VPC, EKS, IAM/IRSA, ECR, Route 53, ACM, Secrets Manager
+- **Argo CD** reconciles cluster state from Git (**app-of-apps**)
+- **Kustomize** manages env overlays (dev)
+- **AWS Load Balancer Controller** creates ALB from Ingress
+- **ExternalDNS** writes Route 53 records for Ingress hostnames
+- **ACM** provides HTTPS (wildcard cert) and ALB redirects HTTP → HTTPS
+- **External Secrets Operator (ESO)** syncs values from **AWS Secrets Manager** into Kubernetes Secrets
+- **GitHub Actions (OIDC)** builds/pushes images to ECR and opens a **PR** to the GitOps repo to bump the image tag → merge → Argo deploy
 
-## Repos you will fork
+> Reference live demo (my environment): https://demo.p1.cloudwithtanmay.com
+
+---
+
+## Repos you fork (source of truth)
 
 Fork these repos into your GitHub account:
 
 1) Infra (Terraform): https://github.com/tanmayj-hub/gitops-eks-infra  
-2) GitOps (Kustomize + Argo Apps): https://github.com/tanmayj-hub/gitops-eks-apps  
-3) App source (CI build): https://github.com/tanmayj-hub/ct-gitops-demo-app  
+2) GitOps (Argo apps + Kustomize): https://github.com/tanmayj-hub/gitops-eks-apps  
+3) Demo app (source + CI): https://github.com/tanmayj-hub/ct-gitops-demo-app
 
-## Architecture (high level)
+This guide repo is documentation only.
 
-```mermaid
-flowchart LR
-  Dev[Developer] -->|push| GHA[GitHub Actions]
-  GHA -->|OIDC AssumeRole| AWS[(AWS)]
-  GHA -->|build+push| ECR[ECR: ct-gitops/demo-app]
-  GHA -->|PR: bump image tag| GitOpsRepo[gitops-eks-apps]
+---
 
-  GitOpsRepo -->|sync| Argo[Argo CD]
-  Argo -->|apply manifests| EKS[EKS Cluster]
-  EKS --> ALB[ALB via AWS LBC]
-  ALB -->|HTTPS| Users[Users]
-  ExternalDNS[ExternalDNS] --> Route53[Route 53]
-  Route53 --> Users
-  SecretsMgr[Secrets Manager] --> ESO[External Secrets Operator]
-  ESO --> EKS
-Your values (edit these)
+## Quick start (recommended order)
 
-AWS region: us-east-2
+1) Prereqs: `docs/00-prereqs.md`  
+2) Fork/clone + required edits: `docs/01-repo-setup.md`  
+3) Remote Terraform state (S3 + DynamoDB): `docs/02-remote-state.md`  
+4) Infra apply (EKS/VPC/ECR/Route53/ACM/Secrets/OIDC role): `docs/03-eks-infra.md`  
+5) Add-ons apply (LBC/ArgoCD/ExternalDNS/ESO): `docs/04-addons.md`  
+6) GitOps bootstrap (app-of-apps): `docs/05-argocd-bootstrap.md`  
+7) Demo app deploy: `docs/06-demo-app.md`  
+8) Public Ingress + DNS + HTTPS: `docs/07-ingress-dns-tls.md`  
+9) Secrets baseline (ESO): `docs/08-secrets-eso.md`  
+10) CI/CD (OIDC → ECR → GitOps PR): `docs/09-cicd-oidc-gitops-pr.md`  
+11) Destroy safely: `docs/10-destroy.md`
 
-Project slug: ct-gitops
+---
 
-Env: dev
+## Defaults used in the reference project
 
-Cluster name: ct-gitops-dev
+- AWS region: `us-east-2`
+- Project slug: `ct-gitops`
+- Env: `dev`
+- EKS cluster name: `ct-gitops-dev`
+- Hosted zone (delegated sub-zone): `p1.cloudwithtanmay.com`
+- Demo hostname: `demo.p1.cloudwithtanmay.com`
 
-Domain: cloudwithtanmay.com
+You can change these, but keep them consistent across repos.
 
-Delegated zone used here: p1.cloudwithtanmay.com
+---
 
-Demo URL: https://demo.p1.cloudwithtanmay.com
+## Architecture diagram (Eraser)
 
-Step-by-step stages
-Stage 0 — Repo setup & conventions
+- Diagram spec: `docs/architecture-diagram-spec.md`
+- Eraser diagram-as-code file: `docs/ct-gitops-v2-architecture.eraserdiagram`
+- Mermaid version: `docs/architecture-mermaid.md`
 
-Follow: docs/01-repo-setup.md
+---
 
-Stage 1 — Tooling
+## Proof screenshots
 
-Follow: docs/00-prereqs.md
+A curated screenshot checklist is in:
+- `assets/screenshots/README.md`
 
-Stage 2 — Remote Terraform state (S3 + DynamoDB)
+---
 
-Follow: docs/02-remote-state.md
+## Cost note (important)
 
-Stage 3 — VPC + EKS (Terraform)
+EKS + NAT Gateway + ALB can cost money if left running. Use `docs/10-destroy.md` when finished.
 
-Follow: docs/03-eks-infra.md
+---
 
-Stage 4 — Add-ons (Terraform dev-addons stack)
+## Next sprint items (optional)
 
-Installs:
-
-AWS Load Balancer Controller (IRSA)
-
-Argo CD (Helm)
-
-ExternalDNS (IRSA)
-
-External Secrets Operator (IRSA)
-
-Follow: docs/04-addons.md + docs/05-argocd-bootstrap.md
-
-Stage 5–7 — GitOps bootstrap + demo app
-
-Follow: docs/05-argocd-bootstrap.md + docs/06-demo-app.md
-
-Stage 8–9 — Public ingress + DNS + HTTPS (ACM wildcard)
-
-Follow: docs/07-ingress-dns-tls.md
-
-Stage 10 — Secrets baseline (Secrets Manager + ESO)
-
-Follow: docs/08-secrets-eso.md
-
-Stage 13 — CI/CD (OIDC → ECR → GitOps PR → Argo deploy)
-
-Follow: docs/09-cicd-oidc-gitops-pr.md
-
-Destroy (stop costs)
-
-Follow: docs/10-destroy.md
-
-Screenshots checklist (for proof)
-
-See assets/screenshots/README.md (or the LinkedIn section in this chat).
+This guide intentionally defers:
+- Stage 11: 3-tier app in-cluster DB (learning)
+- Stage 12: RDS upgrade (industry DB)
+You can add those later without changing the GitOps foundation.
