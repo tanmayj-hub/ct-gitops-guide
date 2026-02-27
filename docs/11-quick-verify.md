@@ -47,5 +47,4 @@ Expected: prints the value stored in AWS Secrets Manager.
 
 ✅ If all commands pass, the system is working end-to-end.
 
-
 ---
