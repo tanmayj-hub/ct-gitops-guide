@@ -1,24 +1,64 @@
 ```mermaid
 flowchart LR
-  Dev[Developer] -->|push to main| AppRepo[ct-gitops-demo-app]
-  AppRepo -->|GitHub Actions| GHA[CI: Build + Push + PR]
-  GHA -->|OIDC AssumeRole| IAMRole[IAM Role: gha-ecr-push]
-  IAMRole --> AWS[(AWS)]
+  %% -----------------------------
+  %% GitHub (source of truth)
+  %% -----------------------------
+  subgraph GH["GitHub"]
+    InfraRepo["gitops-eks-infra\nTerraform (envs/dev + envs/dev-addons)"]
+    GitOpsRepo["gitops-eks-apps\nKustomize + Argo Applications"]
+    AppRepo["ct-gitops-demo-app\nApp source + CI workflow"]
+    GHA["GitHub Actions\nBuild → Push → PR"]
+  end
 
-  GHA -->|docker push| ECR[ECR: ct-gitops/demo-app]
-  GHA -->|PR bump image tag| GitOpsRepo[gitops-eks-apps]
+  %% -----------------------------
+  %% AWS services
+  %% -----------------------------
+  subgraph AWS["AWS (us-east-2)"]
+    IAM["IAM OIDC Role\n(ct-gitops-dev-gha-ecr-push)"]
+    ECR["ECR\nct-gitops/demo-app"]
+    R53["Route 53\np1.<domain> zone"]
+    ACM["ACM\nWildcard cert (*.p1.<domain>)"]
+    SM["Secrets Manager\nct-gitops/dev/demo-app"]
+    ALB["ALB\n(created from Ingress)"]
+  end
 
-  GitOpsRepo -->|desired state| Argo[Argo CD (app-of-apps)]
-  Argo -->|apply| EKS[EKS Cluster]
+  %% -----------------------------
+  %% EKS runtime
+  %% -----------------------------
+  subgraph EKS["EKS: ct-gitops-dev"]
+    Argo["Argo CD\n(app-of-apps)"]
+    LBC["AWS Load Balancer Controller"]
+    ExtDNS["ExternalDNS"]
+    ESO["External Secrets Operator"]
+    Demo["demo-app\nDeployment + Service + Ingress"]
+  end
 
-  SecretsMgr[Secrets Manager] --> ESO[External Secrets Operator]
-  ESO -->|creates K8s Secret| EKS
+  Users["Users\nBrowser"]
 
-  EKS -->|Ingress| LBC[AWS Load Balancer Controller]
-  LBC --> ALB[ALB (internet-facing)]
-  ALB -->|HTTPS (ACM)| Users[Users]
+  %% Infra provisioning + add-ons install
+  InfraRepo -->|"terraform apply\n(VPC/EKS/IRSA/ECR/Route53/ACM/Secrets/OIDC)"| AWS
+  InfraRepo -->|"terraform apply\n(Helm add-ons + root Argo App)"| EKS
 
-  ExternalDNS --> Route53[Route 53 Hosted Zone]
-  Route53 --> Users
+  %% CI/CD to GitOps
+  AppRepo -->|"push to main"| GHA
+  GHA -->|"OIDC AssumeRole\n(no AWS keys)"| IAM
+  GHA -->|"docker push\n0.1.X / sha-*"| ECR
+  GHA -->|"PR: bump images[].newTag"| GitOpsRepo
+
+  %% GitOps reconcile
+  GitOpsRepo -->|"desired state"| Argo
+  Argo -->|"apply + self-heal + prune"| Demo
+
+  %% Secrets flow
+  SM -->|"GetSecretValue (IRSA)"| ESO
+  ESO -->|"creates K8s Secret"| Demo
+
+  %% Ingress / DNS / TLS flow
+  Demo -->|"Ingress"| LBC
+  LBC -->|"provisions"| ALB
+  ExtDNS -->|"creates A/AAAA + TXT"| R53
+  R53 -->|"DNS resolves hostname"| Users
+  ACM -->|"TLS cert attached"| ALB
+  ALB -->|"HTTPS"| Users
 
 ---

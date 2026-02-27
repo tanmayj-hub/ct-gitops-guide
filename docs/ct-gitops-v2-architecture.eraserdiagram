@@ -1,28 +1,27 @@
-```text
 direction right
 typeface clean
 styleMode shadow
 colorMode pastel
 
 legend [position: bottom-left] {
-  [connection: >, label: Control/Data flow]
-  [connection: -->, label: Automation]
+  [connection: >, label: Data flow]
+  [connection: -->, label: Automation/control]
 }
 
 GitHub [icon: github] {
-  "ct-gitops-demo-app" [label: "Repo: ct-gitops-demo-app\n(app source + CI)"]
+  "gitops-eks-infra" [label: "Repo: gitops-eks-infra\nTerraform\n(envs/dev + envs/dev-addons)"]
+  "gitops-eks-apps" [label: "Repo: gitops-eks-apps\nKustomize desired state\n+ Argo Applications"]
+  "ct-gitops-demo-app" [label: "Repo: ct-gitops-demo-app\nApp source + CI"]
   "GitHub Actions" [label: "GitHub Actions\nBuild → Push → PR"]
-  "gitops-eks-apps" [label: "Repo: gitops-eks-apps\n(Kustomize desired state)"]
-  "gitops-eks-infra" [label: "Repo: gitops-eks-infra\n(Terraform)"]
 }
 
 AWS [icon: aws] {
-  IAM [icon: aws-identity-and-access-management, label: "IAM (OIDC role)"]
+  IAM [icon: aws-identity-and-access-management, label: "IAM\nOIDC role (CI)"]
   ECR [icon: aws-elastic-container-registry, label: "ECR\nct-gitops/demo-app"]
-  R53 [icon: aws-route-53-hosted-zone, label: "Route 53\np1.<domain>"]
-  ACM [icon: aws-certificate-manager, label: "ACM\nWildcard cert"]
+  R53 [icon: aws-route-53-hosted-zone, label: "Route 53\nHosted Zone: p1.<domain>"]
+  ACM [icon: aws-certificate-manager, label: "ACM\nWildcard cert (*.p1.<domain>)"]
   SM  [icon: aws-secrets-manager, label: "Secrets Manager\nct-gitops/dev/demo-app"]
-  ALB [icon: aws-elb-application-load-balancer, label: "ALB\nIngress → LB"]
+  ALB [icon: aws-elb-application-load-balancer, label: "ALB\n(created from Ingress)"]
 }
 
 EKSCluster [icon: aws-elastic-container-kubernetes, label: "EKS Cluster\nct-gitops-dev"] {
@@ -35,19 +34,29 @@ EKSCluster [icon: aws-elastic-container-kubernetes, label: "EKS Cluster\nct-gito
 
 Users [icon: user, label: "Users\nBrowser"]
 
-"ct-gitops-demo-app" > "GitHub Actions": push
-"GitHub Actions" --> IAM: OIDC AssumeRole (no keys)
-IAM --> ECR: allow push
+%% Terraform provisions AWS and installs add-ons
+"gitops-eks-infra" --> AWS: terraform apply (infra: VPC/EKS/IRSA/ECR/Route53/ACM/Secrets/OIDC)
+"gitops-eks-infra" --> EKSCluster: terraform apply (add-ons: Helm + root Argo Application)
+
+%% CI/CD flow
+"ct-gitops-demo-app" > "GitHub Actions": push to main
+"GitHub Actions" --> IAM: OIDC AssumeRole (no AWS keys)
+IAM --> ECR: allow push (least privilege)
 "GitHub Actions" --> ECR: docker push (0.1.X / sha-*)
-"GitHub Actions" --> "gitops-eks-apps": PR bump image tag
+"GitHub Actions" --> "gitops-eks-apps": PR bump image tag (newTag)
+
+%% GitOps reconcile
 "gitops-eks-apps" --> Argo: desired state
 Argo --> DemoApp: apply + self-heal + prune
 
-DemoApp --> LBC: Ingress
-LBC --> ALB: create LB
-ExternalDNS --> R53: create DNS records
-ACM --> ALB: TLS cert attached
-ALB > Users: HTTPS
-
-SM --> ESO: read secret (IRSA)
+%% Secrets flow
+SM --> ESO: GetSecretValue (IRSA)
 ESO --> DemoApp: create K8s Secret (env vars)
+
+%% Ingress/DNS/TLS flow
+DemoApp --> LBC: Ingress
+LBC --> ALB: provision ALB
+ExternalDNS --> R53: create DNS records (A/AAAA + TXT)
+ACM --> ALB: attach TLS cert
+R53 --> Users: hostname resolves
+ALB > Users: HTTPS
