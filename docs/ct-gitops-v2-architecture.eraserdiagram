@@ -1,0 +1,53 @@
+```text
+direction right
+typeface clean
+styleMode shadow
+colorMode pastel
+
+legend [position: bottom-left] {
+  [connection: >, label: Control/Data flow]
+  [connection: -->, label: Automation]
+}
+
+GitHub [icon: github] {
+  "ct-gitops-demo-app" [label: "Repo: ct-gitops-demo-app\n(app source + CI)"]
+  "GitHub Actions" [label: "GitHub Actions\nBuild → Push → PR"]
+  "gitops-eks-apps" [label: "Repo: gitops-eks-apps\n(Kustomize desired state)"]
+  "gitops-eks-infra" [label: "Repo: gitops-eks-infra\n(Terraform)"]
+}
+
+AWS [icon: aws] {
+  IAM [icon: aws-identity-and-access-management, label: "IAM (OIDC role)"]
+  ECR [icon: aws-elastic-container-registry, label: "ECR\nct-gitops/demo-app"]
+  R53 [icon: aws-route-53-hosted-zone, label: "Route 53\np1.<domain>"]
+  ACM [icon: aws-certificate-manager, label: "ACM\nWildcard cert"]
+  SM  [icon: aws-secrets-manager, label: "Secrets Manager\nct-gitops/dev/demo-app"]
+  ALB [icon: aws-elb-application-load-balancer, label: "ALB\nIngress → LB"]
+}
+
+EKSCluster [icon: aws-elastic-container-kubernetes, label: "EKS Cluster\nct-gitops-dev"] {
+  Argo [label: "Argo CD\n(app-of-apps)"]
+  LBC  [label: "AWS Load Balancer Controller"]
+  ExternalDNS [label: "ExternalDNS"]
+  ESO [label: "External Secrets Operator"]
+  DemoApp [label: "demo-app\nDeployment + Service + Ingress"]
+}
+
+Users [icon: user, label: "Users\nBrowser"]
+
+"ct-gitops-demo-app" > "GitHub Actions": push
+"GitHub Actions" --> IAM: OIDC AssumeRole (no keys)
+IAM --> ECR: allow push
+"GitHub Actions" --> ECR: docker push (0.1.X / sha-*)
+"GitHub Actions" --> "gitops-eks-apps": PR bump image tag
+"gitops-eks-apps" --> Argo: desired state
+Argo --> DemoApp: apply + self-heal + prune
+
+DemoApp --> LBC: Ingress
+LBC --> ALB: create LB
+ExternalDNS --> R53: create DNS records
+ACM --> ALB: TLS cert attached
+ALB > Users: HTTPS
+
+SM --> ESO: read secret (IRSA)
+ESO --> DemoApp: create K8s Secret (env vars)
